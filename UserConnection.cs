@@ -5,12 +5,13 @@ using System.Text;
 namespace PersistenceServer
 {
     public class UserConnection
-    {        
+    {
         private readonly MmoWsServer _mmoWsServer;
         private readonly WebSocket _webSocket;
         public Guid Id { get; private set; }
-        public string Cookie { get; set;  }
+        public string Cookie { get; set; }
         public IPAddress Ip { get; set; }
+        private string? _macAddress;  // NOUVEAU
 
         // La taille maximale autorisée pour un message (par ex., 1 MB)
         const long MaxMessageSize = 1 * 1024 * 1024; // 1 MB
@@ -22,6 +23,23 @@ namespace PersistenceServer
             Id = Guid.NewGuid();
             Cookie = "";
             Ip = ip;
+            _macAddress = null;  // NOUVEAU
+        }
+
+        // NOUVELLES MÉTHODES
+        public string? GetIpAddress()
+        {
+            return Ip?.ToString();
+        }
+
+        public string? GetMacAddress()
+        {
+            return _macAddress;
+        }
+
+        public void SetMacAddress(string? macAddress)
+        {
+            _macAddress = macAddress;
         }
 
         public async Task HandleConnectionAsync()

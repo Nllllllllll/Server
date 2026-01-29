@@ -13,18 +13,28 @@
         {
             string accountName = reader.ReadMmoString();
             string password = reader.ReadMmoString();
+            string macAddress = reader.ReadMmoString(); // NOUVEAU
+
+            connection.SetMacAddress(macAddress); // NOUVEAU
+
 #if DEBUG
             Console.WriteLine($"(thread {Environment.CurrentManagedThreadId}): Se connecter avec un mot de passe");
-#endif            
+#endif
             Server!.Processor.ConQ.Enqueue(async () => await ProcessLogin(accountName, password, connection));
         }
 
         private async Task ProcessLogin(string accountName, string password, UserConnection connection)
         {
             int accountId = await Server!.Database.LoginUser(accountName, password); // returns -1 if login failed
+
             // if account exists
             if (accountId >= 0)
             {
+                // Mettre à jour les informations de connexion
+                string? ipAddress = connection.GetIpAddress();
+                string? macAddress = connection.GetMacAddress();
+                await Server!.Database.UpdateLoginInfo(accountId, ipAddress, macAddress);
+
                 var cookie = BCrypt.Net.BCrypt.GenerateSalt();
                 Console.WriteLine($"Connexion: '{accountName}', id: {accountId}, cookie: {cookie}");
                 Server!.GameLogic.UserLoggedIn(accountId, cookie, connection);
@@ -37,7 +47,7 @@
             // if account doesn't exist or is banned
             else
             {
-                Console.WriteLine($"Connexion pour '{accountName}' échec : mauvaises informations d'identification");
+                Console.WriteLine($"Connexion pour '{accountName}' échec : mauvaises informations d'identification");
                 byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcLoginPassword), ToBytes(false)); // sending false to signify "failure"
                 connection.Send(msg);
             }

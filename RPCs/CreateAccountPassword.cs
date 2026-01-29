@@ -13,9 +13,13 @@
         {
             string accountName = reader.ReadMmoString();
             string password = reader.ReadMmoString();
+            string macAddress = reader.ReadMmoString(); // NOUVEAU
+
+            connection.SetMacAddress(macAddress); // NOUVEAU
+
 #if DEBUG
             Console.WriteLine($"(thread {Environment.CurrentManagedThreadId}): Créer un compte");
-#endif            
+#endif
             Server!.Processor.ConQ.Enqueue(async () => await ProcessAccountCreation(accountName, password, connection));
         }
 
@@ -25,13 +29,17 @@
             if (!await Server!.Database.DoesAccountExist(accountName))
             {
                 Console.Write($"Création d'un compte pour l'utilisateur: '{accountName}', ");
-                int accountId = await Server!.Database.CreateUserAccount(accountName, password);
-                Console.WriteLine($"id: {accountId}");
+
+                // Récupérer l'IP et le MAC de la connexion
+                string? ipAddress = connection.GetIpAddress();
+                string? macAddress = connection.GetMacAddress();
+
+                int accountId = await Server!.Database.CreateUserAccount(accountName, password, ipAddress, macAddress);
+                Console.WriteLine($"id: {accountId}, IP: {ipAddress ?? "N/A"}, MAC: {macAddress ?? "N/A"}");
 
                 // don't ask the user to log in after creating the account, consider him logged in
                 var cookie = BCrypt.Net.BCrypt.GenerateSalt();
                 Server!.GameLogic.UserLoggedIn(accountId, cookie, connection);
-
                 // sending true to signify "success", plus a cookie
                 // the cookie will allow a reconnection later, when the user changes the level to enter the game server
                 byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcCreateAccountPassword), ToBytes(true), WriteMmoString(cookie)); // sending true to signify "success"
@@ -40,7 +48,7 @@
             // if account exists, tell user to pick a different account name
             else
             {
-                Console.WriteLine($"Création d'un compte pour l'utilisateur '{accountName}' échec : nom d'utilisateur pris");
+                Console.WriteLine($"Création d'un compte pour l'utilisateur '{accountName}' échec : nom d'utilisateur pris");
                 byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcCreateAccountPassword), ToBytes(false)); // sending false to signify "failure"
                 connection.Send(msg);
             }
