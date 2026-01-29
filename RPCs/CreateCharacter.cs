@@ -58,7 +58,7 @@ namespace PersistenceServer.RPCs
             bool gmCharacter = await Server!.Database.IsCharactersTableEmpty();
             if (gmCharacter)
             {
-                Console.WriteLine($"Aucun personnage existant dans la base de données. Création d'un personnage MJ.");
+                Console.WriteLine($"Aucun personnage existant dans la base de données. Création d'un personnage GM (permissions: 11).");
             }
 
             Console.Write($"Création d'un personnage nommé: '{playerName}', ");

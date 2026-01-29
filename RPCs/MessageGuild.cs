@@ -23,18 +23,25 @@ namespace PersistenceServer.RPCs
 
         private void ProcessMessage(string message, UserConnection connection)
         {
-            var charName = Server!.GameLogic.GetPlayerName(connection);
-            if (charName == "") return;
+            var sender = Server!.GameLogic.GetPlayerByConnection(connection); // AJOUTÉ pour obtenir l'objet Player
+            if (sender == null) return;
+
+            var charName = sender.Name; // MODIFIÉ (était Server!.GameLogic.GetPlayerName(connection))
 
             var guild = Server!.GameLogic.GetPlayerGuild(connection);
-            if (guild == null) {
+            if (guild == null)
+            {
                 Console.WriteLine($"Joueur {charName} a tenté un message de guilde, mais n'est pas dans une guilde");
                 return;
             }
 
-            Console.WriteLine($"{DateTime.Now:HH:mm} [Guilde ({guild.Id})] {charName}: \"{message}\"");
+            // NOUVEAU : Déterminer si le message doit afficher un préfixe de rôle
+            bool isStaff = sender.IsGm();
+            string rolePrefix = isStaff ? sender.GetRolePrefix() : "";
+
+            Console.WriteLine($"{DateTime.Now:HH:mm} [Guilde ({guild.Id})] {rolePrefix}{charName}: \"{message}\"");
             // Le canal 5 est le canal de guilde, voir EChatMsgChannel dans UE5
-            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(5), WriteMmoString(charName), WriteMmoString(message), ToBytes(false) /* pas un message de MJ */);
+            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(5), WriteMmoString(charName), WriteMmoString(message), ToBytes(isStaff) /* MODIFIÉ */);
             var players = guild.GetOnlineMembers();
             foreach (var player in players)
             {

@@ -258,7 +258,7 @@ namespace PersistenceServer
             var cmd = GetCommand("INSERT INTO `characters` (`id`, `name`, `owner`, `guild`, `guildrank`, `permissions`, `serialized`) VALUES (NULL, @charName, @ownerAccountId, NULL, NULL, @permissions, @serialized);");
             cmd.AddParam("@charName", charName);
             cmd.AddParam("@ownerAccountId", ownerAccountId);
-            cmd.AddParam("@permissions", gmCharacter ? 10 : 0); // GM gets permissions 10, player gets 0, feel free to change it
+            cmd.AddParam("@permissions", gmCharacter ? 11 : 0); // MODIFIÉ : GM obtient 11, joueur obtient 0
             cmd.AddParam("@serialized", serializedCharacter);
             int lastInsertedId = await RunInsert(cmd);
             return lastInsertedId;

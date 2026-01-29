@@ -32,25 +32,25 @@
             {
                 talkAsGM = false;
             }
-            string GM = talkAsGM ? "<GM>" : "";
+            string rolePrefix = talkAsGM ? sender.GetRolePrefix() : ""; // MODIFIÉ
 
             // tentative de trouver le destinataire
             var recipient = Server!.GameLogic.GetPlayerByName(recipientName);
             // si le destinataire est introuvable
             if (recipient == null)
             {
-                Console.WriteLine($"{DateTime.Now:HH:mm} [Privé (échec)] {GM}{senderName} à {recipientName}: \"{message}\"");
+                Console.WriteLine($"{DateTime.Now:HH:mm} [Privé (échec)] {rolePrefix}{senderName} à {recipientName}: \"{message}\"");
                 byte[] msgFail = MergeByteArrays(ToBytes(RpcType.RpcNoSuchPlayer));
                 senderConn.Send(msgFail);
                 return;
             }
 
-            Console.WriteLine($"{DateTime.Now:HH:mm} [Privé] {GM}{senderName} à {recipientName}: \"{message}\"");
+            Console.WriteLine($"{DateTime.Now:HH:mm} [Privé] {rolePrefix}{senderName} à {recipientName}: \"{message}\"");
 
             byte[] msgToSender = MergeByteArrays(
-                ToBytes(RpcType.RpcMessagePlayer), 
+                ToBytes(RpcType.RpcMessagePlayer),
                 ToBytes(true), // true pour signifier « c'est votre message »
-                WriteMmoString(recipientName), 
+                WriteMmoString(recipientName),
                 WriteMmoString(message),
                 ToBytes(talkAsGM)
             );
@@ -63,7 +63,7 @@
                 WriteMmoString(message),
                 ToBytes(talkAsGM)
             );
-            recipient.Conn.Send(msgToRecipient);            
+            recipient.Conn.Send(msgToRecipient);
         }
     }
 }

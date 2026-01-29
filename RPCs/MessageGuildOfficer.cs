@@ -21,7 +21,7 @@
 
         private void ProcessMessage(string message, UserConnection connection)
         {
-            var sender = Server!.GameLogic.GetPlayerByConnection(connection);            
+            var sender = Server!.GameLogic.GetPlayerByConnection(connection);
             if (sender == null) return;
             var charName = sender.Name;
 
@@ -37,9 +37,13 @@
                 return;
             }
 
-            Console.WriteLine($"{DateTime.Now:HH:mm} [Officier de guilde ({guild.Id})] {charName}: \"{message}\"");
+            // NOUVEAU : Déterminer si le message doit afficher un préfixe de rôle
+            bool isStaff = sender.IsGm();
+            string rolePrefix = isStaff ? sender.GetRolePrefix() : "";
+
+            Console.WriteLine($"{DateTime.Now:HH:mm} [Officier de guilde ({guild.Id})] {rolePrefix}{charName}: \"{message}\"");
             // Le canal 7 est le canal des officiers de guilde, voir EChatMsgChannel dans UE5
-            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(7), WriteMmoString(charName), WriteMmoString(message), ToBytes(false) /* pas un message de MJ */);
+            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(7), WriteMmoString(charName), WriteMmoString(message), ToBytes(isStaff) /* MODIFIÉ */);
             var players = guild.GetOnlineOfficers(Server.Settings.GuildOfficerRank);
             foreach (var player in players)
             {

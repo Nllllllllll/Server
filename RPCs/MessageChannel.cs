@@ -27,7 +27,7 @@
             if (sender == null) return; // le joueur a pu se déconnecter entre-temps, donc on abandonne l'opération
             var charName = sender.Name;
 
-            // si talkAsGM est vrai mais que l'expéditeur n'est pas un MJ, réinitialise simplement la valeur à false
+            // si talkAsGM est vrai mais que l'expéditeur n'est pas un MJ/MOD, réinitialise simplement la valeur à false
             if (talkAsGM && !sender.IsGm())
             {
                 talkAsGM = false;
@@ -38,8 +38,8 @@
             // de le diffuser en multicast depuis le personnage, dont la distance de culling réseau déterminera la portée d'écoute
             if (channel == 0)
             {
-                string GM = talkAsGM ? "<GM>" : "";
-                Console.WriteLine($"{DateTime.Now:HH:mm} [Dit] {GM}{charName}: \"{message}\"");
+                string rolePrefix = talkAsGM ? sender.GetRolePrefix() : ""; // MODIFIÉ
+                Console.WriteLine($"{DateTime.Now:HH:mm} [Dit] {rolePrefix}{charName}: \"{message}\"");
                 byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), WriteMmoString(charName), WriteMmoString(message), ToBytes(talkAsGM));
                 // @TODO : optimiser en n'envoyant qu'au serveur approprié
                 foreach (var serverConn in Server!.GameLogic.GetAllServerConnections())
@@ -51,11 +51,21 @@
             // Global correspond au canal 1
             if (channel == 1)
             {
-                string GM = talkAsGM ? "<GM>" : "";
-                Console.WriteLine($"{DateTime.Now:HH:mm} [Global] {GM}{charName}: \"{message}\"");
-                byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(channel), WriteMmoString(charName), WriteMmoString(message), ToBytes(talkAsGM));
+                string rolePrefix = talkAsGM ? sender.GetRolePrefix() : "";
+                Console.WriteLine($"{DateTime.Now:HH:mm} [Global] {rolePrefix}{charName}: \"{message}\"");
+
+                // Envoyer le préfixe séparément
+                byte[] msg = MergeByteArrays(
+                    ToBytes(RpcType.RpcMessageChannel),
+                    ToBytes(channel),
+                    WriteMmoString(charName),
+                    WriteMmoString(message),
+                    ToBytes(talkAsGM),
+                    WriteMmoString(rolePrefix) // NOUVEAU
+                );
+
                 var players = Server!.GameLogic.GetAllPlayerConnections();
-                foreach(var player in players)
+                foreach (var player in players)
                 {
                     player.Send(msg);
                 }

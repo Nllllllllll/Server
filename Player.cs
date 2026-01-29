@@ -14,7 +14,7 @@ namespace PersistenceServer
         public int AccountId;
         public int GuildId; // -1 pour sans guilde
         public int GuildRank; // -1 pour sans guilde
-        public int Permissions; // 0 pour joueur, 10 pour GM, mais cela peut être changé dans Server!.Database.CreateCharacter
+        public int Permissions; // 0 pour joueur, 10 pour MOD, 11 pour GM
         public Party? PartyRef;
         public string PartyId { get { return PartyRef != null ? PartyRef.Id : ""; } }
 
@@ -33,8 +33,30 @@ namespace PersistenceServer
 
         public bool IsGm()
         {
-            return Permissions > 0;
+            return Permissions >= 10; // MOD ou GM
         }
+
+        public bool IsMod()
+        {
+            return Permissions == 10;
+        }
+
+        public bool IsAdmin()
+        {
+            return Permissions >= 11;
+        }
+
+        // NOUVELLE MÉTHODE
+        public string GetRolePrefix()
+        {
+            if (Permissions >= 11)
+                return "<GM>";
+            else if (Permissions == 10)
+                return "<MOD>";
+            else
+                return "";
+        }
+
 
         // si la dernière invitation est valide et a été émise il y a moins de 30 secondes, le joueur a une invitation en attente
         public bool HasPendingInvite()

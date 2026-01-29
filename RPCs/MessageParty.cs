@@ -32,11 +32,15 @@
 
             bool partyLeader = player.PartyRef.PartyLeaderId == player.CharId;
 
-            Console.WriteLine($"{DateTime.Now:HH:mm} [{(partyLeader ? "chef du Groupe" : "Groupe")} ({player.PartyId})] {player.Name}: \"{message}\"");
+            // NOUVEAU : Déterminer si le message doit afficher un préfixe de rôle
+            bool isStaff = player.IsGm();
+            string rolePrefix = isStaff ? player.GetRolePrefix() : "";
+
+            Console.WriteLine($"{DateTime.Now:HH:mm} [{(partyLeader ? "chef du Groupe" : "Groupe")} ({player.PartyId})] {rolePrefix}{player.Name}: \"{message}\"");
             // Le canal 8 est le canal de groupe, voir EChatMsgChannel dans UE5
             // Le canal 9 est le canal du chef de groupe
             int channel = partyLeader ? 9 : 8;
-            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(channel), WriteMmoString(player.Name), WriteMmoString(message), ToBytes(false) /* pas un message de MJ */);
+            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcMessageChannel), ToBytes(channel), WriteMmoString(player.Name), WriteMmoString(message), ToBytes(isStaff) /* MODIFIÉ */);
             foreach (var partyMemberConn in player.PartyRef.GetClientConnections())
             {
                 partyMemberConn.Send(msg);
