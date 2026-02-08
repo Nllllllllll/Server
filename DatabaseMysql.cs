@@ -35,7 +35,7 @@ namespace PersistenceServer
             // s'il n'y a pas de base de données, en créer une
             if (!doesDbExistQuery.HasRows())
             {
-                Console.Write("Base de données non trouvée : création... ");
+                Console.Write("Base de données non trouvée : création... ");
 
                 // créer la base de données
                 string collation = settings.MysqlAccentSensitiveCollation ? "utf8mb4_0900_as_ci" : "utf8mb4_0900_ai_ci";
@@ -60,6 +60,8 @@ namespace PersistenceServer
 	                    salt BINARY(60),
 	                    email varchar(255),
 	                    status int,
+	                    last_ip varchar(45),
+	                    last_mac varchar(17),
 	                    PRIMARY KEY (id),
 	                    UNIQUE INDEX NAME (name),
                         UNIQUE INDEX STEAMID (steamid)
@@ -79,6 +81,7 @@ namespace PersistenceServer
 	                    guildrank int,
                         permissions int NOT NULL DEFAULT '0',
 	                    serialized text,
+	                    prefix varchar(50),
 	                    PRIMARY KEY (id),
 	                    UNIQUE INDEX NAME (name),
                         INDEX OWNER (owner),
@@ -104,7 +107,23 @@ namespace PersistenceServer
                         UNIQUE INDEX PERSISTENT_OBJ_INDEX (`objectId`, `port`, `level`(100))
                     ) ENGINE = InnoDB;"
                 );
-            // ~créer les tables           
+            // ~créer les tables
+            
+            // Vérifier si la colonne prefix existe et l'ajouter si nécessaire
+            var checkColumnQuery = await RunQuery($@"
+                SELECT COLUMN_NAME 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_SCHEMA = '{settings.MysqlDatabase}' 
+                AND TABLE_NAME = 'characters' 
+                AND COLUMN_NAME = 'prefix';
+            ");
+            
+            if (!checkColumnQuery.HasRows())
+            {
+                Console.Write("Ajout de la colonne 'prefix' à la table characters...");
+                await RunNonQuery("ALTER TABLE characters ADD COLUMN prefix varchar(50);");
+                Console.WriteLine("Fait.");
+            }
         }
 
         public override async Task<int> LoginUser(string accountName, string password)

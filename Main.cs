@@ -18,6 +18,16 @@ namespace PersistenceServer
                 throw new Exception("Type SQL non défini dans settings.ini");
             await database.CheckCreateDatabase(settings);
 
+            try
+            {
+                await database.InitializeLevelConfiguration();
+                Console.WriteLine("Système de niveaux initialisé avec succès.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"AVERTISSEMENT: Échec de l'initialisation: {ex.Message}");
+            }
+
             // Créer un nouveau serveur basé sur TCP. IPAddress.Any = les gens peuvent se connecter depuis n'importe quelle ip.
             var server = new MmoWsServer(settings, database);
             int guildsTotal = await server.RequestGuilds();

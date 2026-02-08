@@ -52,5 +52,14 @@
         RpcPartyFullInfo, // 45
         RpcPartyJoin, // 46
         RpcPartyMembersSync, // 47
+
+        /* Admin CMD*/
+        RpcTeleportToPlayer, // 48
+        RpcMoveToMe = 49, // 49
+
+        /* Leveling */
+        RpcAddExperience, // 50
+        RpcLevelUpdate, // 51
+        RpcGetLevel, // 52
     }
 }

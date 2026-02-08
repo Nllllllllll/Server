@@ -46,12 +46,51 @@ namespace PersistenceServer.RPCs
             // impossible de rétrograder en dessous du rang par défaut de la guilde (DefaultGuildRank)
             if (newRank > Server.Settings.DefaultGuildRank || newRank < 0)
             {
-                Console.WriteLine($"{DateTime.Now:HH:mm} {adjustInitiator.Name} a tenté de définir un rang en dehors des limites autorisées (de 0 à DefaultGuildRank) : rejet de la demande");
-                return; 
+                Console.WriteLine($"{DateTime.Now:HH:mm} {adjustInitiator.Name} a tenté de définir un rang en dehors des limites autorisées (de 0 à DefaultGuildRank) : rejet de la demande");
+                return;
             }
 
             // un MG (Maître de Guilde) ne peut pas se rétrograder lui-même s'il est le seul MG dans la guilde – cela entraînerait une guilde sans MG
             if (adjustInitiator.CharId == adjustVictim.Id && !increaseRank && adjustInitiator.GuildRank == 0 && guild.GuildMastersCount == 1) return;
+
+            // Si on essaie de promouvoir quelqu'un au rang 0 (Guild Master) et qu'il y a déjà un Guild Master,
+            // rétrograder l'ancien Guild Master au rang 1 (Officier)
+            int? oldGuildMasterId = null;
+            Player? oldGuildMasterOnline = null;
+            if (newRank == 0 && guild.GuildMastersCount > 0)
+            {
+                // Trouver l'actuel Guild Master
+                var allMembers = guild.GetAllMembers();
+                foreach (var member in allMembers)
+                {
+                    if (member.GuildRank == 0 && member.Id != adjustVictim.Id)
+                    {
+                        oldGuildMasterId = member.Id;
+                        oldGuildMasterOnline = Server!.GameLogic.GetPlayerById(member.Id);
+
+                        // Mettre à jour dans la base de données
+                        await Server!.Database.UpdateGuildRank(member.Id, 1);
+                        // Mettre à jour dans la guilde
+                        guild.UpdateMemberRank(member.Id, 1);
+
+                        // Si le joueur est en ligne, mettre à jour son rang
+                        if (oldGuildMasterOnline != null)
+                        {
+                            oldGuildMasterOnline.GuildRank = 1;
+
+                            // Envoyer la mise à jour aux serveurs
+                            byte[] oldGmUpdateMsg = MergeByteArrays(ToBytes(RpcType.RpcGuildMemberUpdate), ToBytes(oldGuildMasterOnline.CharId), WriteMmoString(guild.Name), ToBytes(guild.Id), ToBytes(1));
+                            foreach (var serverConn in Server!.GameLogic.GetAllServerConnections())
+                            {
+                                serverConn.Send(oldGmUpdateMsg);
+                            }
+                        }
+
+                        Console.WriteLine($"{DateTime.Now:HH:mm} L'ancien Guild Master {member.MemberName} a été rétrogradé au rang 1");
+                        break;
+                    }
+                }
+            }
 
             string verb = increaseRank ? "promoted" : "demoted";
             Console.WriteLine($"{DateTime.Now:HH:mm} {adjustInitiator.Name} a {verb} {adjustVictim.MemberName} dans la guilde.");
@@ -76,16 +115,29 @@ namespace PersistenceServer.RPCs
                 }
             }
 
-
-            // envoyer deux messages à tous les membres de la guilde (clients) :  
-            // 1. mettre à jour le membre de la guilde (ce qui inclut son rang)  
-            // 2. un simple message indiquant qu’un joueur a été promu/rétrogradé, à afficher dans la fenêtre de discussion
-            byte[] msgMemberUpdate = MergeByteArrays(ToBytes(RpcType.RpcGuildMemberUpdate), ToBytes(adjustVictim.Id), ToBytes(adjustVictim.GuildRank), ToBytes(adjustVictimOnline == null ? false : true));
-            byte[] msgCharRankAdjusted = MergeByteArrays(ToBytes(RpcType.RpcGuildAdjustRank), ToBytes(increaseRank), WriteMmoString(adjustVictim.MemberName));
+            // Envoyer les mises à jour à tous les membres de la guilde
             foreach (var member in guild.GetOnlineMembers())
             {
-                member.Conn.Send(msgMemberUpdate);
+                // 1. Mettre à jour le nouveau rang de la victime
+                byte[] msgVictimUpdate = MergeByteArrays(ToBytes(RpcType.RpcGuildMemberUpdate), ToBytes(adjustVictim.Id), ToBytes(newRank), ToBytes(adjustVictimOnline != null));
+                member.Conn.Send(msgVictimUpdate);
+
+                byte[] msgCharRankAdjusted = MergeByteArrays(ToBytes(RpcType.RpcGuildAdjustRank), ToBytes(increaseRank), WriteMmoString(adjustVictim.MemberName));
                 member.Conn.Send(msgCharRankAdjusted);
+
+                // 2. Si un ancien Guild Master a été rétrogradé, envoyer aussi sa mise à jour
+                if (oldGuildMasterId.HasValue)
+                {
+                    var oldGmMember = guild.GetAllMembers().FirstOrDefault(m => m.Id == oldGuildMasterId.Value);
+                    if (oldGmMember != null)
+                    {
+                        byte[] msgOldGmUpdate = MergeByteArrays(ToBytes(RpcType.RpcGuildMemberUpdate), ToBytes(oldGuildMasterId.Value), ToBytes(1), ToBytes(oldGuildMasterOnline != null));
+                        member.Conn.Send(msgOldGmUpdate);
+
+                        byte[] msgOldGmDemoted = MergeByteArrays(ToBytes(RpcType.RpcGuildAdjustRank), ToBytes(false), WriteMmoString(oldGmMember.MemberName));
+                        member.Conn.Send(msgOldGmDemoted);
+                    }
+                }
             }
         }
     }

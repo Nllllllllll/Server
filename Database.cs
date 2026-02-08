@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
@@ -15,6 +15,11 @@ namespace PersistenceServer
         public string SerializedCharacter = "";
         public int? Guild;
         public int? GuildRank;
+        public string Prefix = "";
+        // Propriétés du système de niveaux
+        public int Level { get; set; } = 1;
+        public long Experience { get; set; } = 0;
+        public long ExperienceToNextLevel { get; set; } = 100;
     }
 
     public class DatabaseAccountInfo
@@ -30,23 +35,17 @@ namespace PersistenceServer
     public abstract class Database
     {
         protected string ConnectionParams;
-        // Change Pepper to any random string before creating any user accounts. Once users are created, don't ever change it again.
         protected readonly string Pepper = "$2a$11$46Z/ZIevW5fGpZFXJK5CMe";
         protected string GetIdentitySqlCommand;
 
-#pragma warning disable CS8618, IDE0060 // ignore CS8618 because it's an abstract class, IDE0060 because we're using the settings in children classes
+#pragma warning disable CS8618, IDE0060
         protected Database(SettingsReader settings) { }
 #pragma warning restore CS8618, IDE0060
 
-        // Checks that there is a database, if not creates one
-        // Overridden in SQLite and MySQL implementations
         public abstract Task CheckCreateDatabase(SettingsReader settings);
-        // Overridden in SQLite and MySQL implementations
         public abstract Task<Guild?> CreateGuild(string guildName, int charId);
-        // Overridden in SQLite and MySQL implementations
         public abstract Task SaveServerInfo(string serializedServerInfo, int port, string level);
         public abstract Task SavePersistentObject(string level, int port, int objectId, string jsonString);
-        // Always call with 'using' keyword or close manually
         protected abstract Task<DbConnection> GetConnection(string parameters);
         protected abstract DbCommand GetCommand(string parameters, DbConnection? connection);
         protected virtual DbCommand GetCommand(string parameters) => GetCommand(parameters, null);
@@ -82,7 +81,6 @@ namespace PersistenceServer
             return dt;
         }
 
-        // Returns the number of rows affected
         protected async Task<int> RunNonQuery(string cmdParams, string overrideConnectionParams)
         {
             await using var conn = await GetConnection(overrideConnectionParams);
@@ -90,7 +88,6 @@ namespace PersistenceServer
             return await cmd.ExecuteNonQueryAsync();
         }
 
-        // Returns the number of rows affected
         protected async Task<int> RunNonQuery(string cmdParams)
         {
             await using var conn = await GetConnection(ConnectionParams);
@@ -98,7 +95,6 @@ namespace PersistenceServer
             return await cmd.ExecuteNonQueryAsync();
         }
 
-        // Returns the number of rows affected
         protected async Task<int> RunNonQuery(DbCommand command)
         {
             await using var conn = await GetConnection(ConnectionParams);
@@ -108,21 +104,6 @@ namespace PersistenceServer
             return rowsAffected;
         }
 
-        //protected async Task<int> RunScalar(string cmdParams, string overrideConnectionParams)
-        //{
-        //    await using var conn = await GetConnection(overrideConnectionParams);
-        //    await using var cmd = GetCommand(cmdParams, conn);
-        //    await cmd.ExecuteNonQuery();
-        //}
-
-        //protected async Task<int> RunScalar(string cmdParams)
-        //{
-        //    await using var conn = await GetConnection(ConnectionParams);
-        //    await using var cmd = GetCommand(cmdParams, conn);
-        //    await cmd.ExecuteNonQuery();
-        //}
-
-        // Returns the last inserted row id
         protected async Task<int> RunInsert(DbCommand command)
         {
             command.CommandText += GetIdentitySqlCommand;
@@ -135,7 +116,6 @@ namespace PersistenceServer
 
         public async Task HelloWorld()
         {
-            //var dt = await RunQuery(@"SET @helloWorldStr = ""Hello World!"";SELECT @helloWorldStr AS ""My Hello World"";");
             var cmd = GetCommand(@"SET @helloWorldStr = ""Hello World!"";SELECT @helloWorldStr AS ""My Row"";");
             var dt = await RunQuery(cmd);
             Debug.Assert(dt.HasRows());
@@ -175,10 +155,6 @@ namespace PersistenceServer
             return lastInsertedId;
         }
 
-        /* Returns: returns -1 if login failes, otherwise returns the user account's id
-         * It's different for Sqlite and MySQL because of how passwords are stored, 
-         * though I'm not sure why it's recommended to store BCrypt hashes as binary arrays (sqlite doesn't even have them)
-         * If you know something about it, let me know. */
         public abstract Task<int> LoginUser(string accountName, string password);
 
         public virtual async Task<int> LoginSteamUser(string steamId, string? ipAddress = null, string? macAddress = null)
@@ -187,31 +163,26 @@ namespace PersistenceServer
             cmd.AddParam("@steamId", steamId);
             var dt = await RunQuery(cmd);
 
-            // if no account with this steamid is found, we should create it!
             if (!dt.HasRows())
             {
                 int newId = await CreateSteamAccount(steamId, ipAddress, macAddress);
                 return newId;
             }
-            // if it's found
             else
             {
                 var id = (int)dt.GetInt(0, "id")!;
                 var status = dt.GetInt(0, "status")!;
 
-                // if status is banned
                 if (status == -1)
                 {
                     return -1;
                 }
 
-                // Update login info
                 if (ipAddress != null || macAddress != null)
                 {
                     await UpdateLoginInfo(id, ipAddress, macAddress);
                 }
 
-                // if everything checks out, allow login by returning user's id
                 return id;
             }
         }
@@ -258,7 +229,7 @@ namespace PersistenceServer
             var cmd = GetCommand("INSERT INTO `characters` (`id`, `name`, `owner`, `guild`, `guildrank`, `permissions`, `serialized`) VALUES (NULL, @charName, @ownerAccountId, NULL, NULL, @permissions, @serialized);");
             cmd.AddParam("@charName", charName);
             cmd.AddParam("@ownerAccountId", ownerAccountId);
-            cmd.AddParam("@permissions", gmCharacter ? 11 : 0); // MODIFIÉ : GM obtient 11, joueur obtient 0
+            cmd.AddParam("@permissions", gmCharacter ? 11 : 0);
             cmd.AddParam("@serialized", serializedCharacter);
             int lastInsertedId = await RunInsert(cmd);
             return lastInsertedId;
@@ -281,7 +252,12 @@ namespace PersistenceServer
                     Permissions = (int)row.GetInt("permissions")!,
                     SerializedCharacter = row.GetString("serialized")!,
                     Guild = row.GetInt("guild"),
-                    GuildRank = row.GetInt("guildrank")
+                    GuildRank = row.GetInt("guildrank"),
+                    Prefix = row.GetString("prefix") ?? "",
+                    // AJOUT SYSTÈME DE NIVEAUX
+                    Level = (int)(row.GetInt("level") ?? 1),
+                    Experience = (long)(row.GetInt("experience") ?? 0),
+                    ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
                 };
                 result.Add(charInfo);
             }
@@ -289,7 +265,6 @@ namespace PersistenceServer
             return result;
         }
 
-        /* Returns: name, permissions, serialized, guild, guildrank */
         public virtual async Task<DatabaseCharacterInfo?> GetCharacter(int charId, int accountId)
         {
             var cmd = GetCommand("SELECT * FROM characters WHERE id = @charId and owner = @accountId");
@@ -307,12 +282,16 @@ namespace PersistenceServer
                 Permissions = (int)row.GetInt("permissions")!,
                 SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
-                GuildRank = row.GetInt("guildrank")
+                GuildRank = row.GetInt("guildrank"),
+                Prefix = row.GetString("prefix") ?? "",
+                // AJOUT SYSTÈME DE NIVEAUX
+                Level = (int)(row.GetInt("level") ?? 1),
+                Experience = (long)(row.GetInt("experience") ?? 0),
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
             };
             return character;
         }
 
-        /* Returns: name, permissions, serialized, guild, guildrank */
         public virtual async Task<DatabaseCharacterInfo?> GetCharacterByName(string charName, int accountId)
         {
             var cmd = GetCommand("SELECT * FROM characters WHERE name = @charName and owner = @accountId");
@@ -330,7 +309,12 @@ namespace PersistenceServer
                 Permissions = (int)row.GetInt("permissions")!,
                 SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
-                GuildRank = row.GetInt("guildrank")
+                GuildRank = row.GetInt("guildrank"),
+                Prefix = row.GetString("prefix") ?? "",
+                // AJOUT SYSTÈME DE NIVEAUX
+                Level = (int)(row.GetInt("level") ?? 1),
+                Experience = (long)(row.GetInt("experience") ?? 0),
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
             };
             return character;
         }
@@ -351,7 +335,12 @@ namespace PersistenceServer
                 Permissions = (int)row.GetInt("permissions")!,
                 SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
-                GuildRank = row.GetInt("guildrank")
+                GuildRank = row.GetInt("guildrank"),
+                Prefix = row.GetString("prefix") ?? "",
+                // AJOUT SYSTÈME DE NIVEAUX
+                Level = (int)(row.GetInt("level") ?? 1),
+                Experience = (long)(row.GetInt("experience") ?? 0),
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
             };
             return charInfo;
         }
@@ -370,17 +359,6 @@ namespace PersistenceServer
         {
             var result = new Dictionary<int, Guild>();
 
-            /*
-             * An example of what we can expect in return:
-             * 
-             * guildId	    guildName			charId		charName 	
-             *    1 		Diamond Dogs 		1 			Arthur Pendragon
-             *    1         Diamond Dogs        2           Raven
-             *    2 		No Dogs 			NULL 		NULL 
-             * 
-             * In this example "Diamond Dogs" has two members: Arthur Pendragon and Raven
-             * The guild "No Dogs" is memberless. It shouldn't happen, but if it does, we'll print a warning.
-             */
             var cmd = GetCommand(@"
                 SELECT guilds.id as guildId, guilds.name as guildName, characters.id as charId, characters.name as charName, characters.guildRank as guildRank FROM guilds
                 LEFT JOIN characters
@@ -396,7 +374,6 @@ namespace PersistenceServer
                 var charId = row.GetInt("charId");
                 var charName = row.GetString("charName");
                 var guildRank = row.GetInt("guildRank");
-                // if the guild hasn't been initialized yet, do so now
                 if (!result.ContainsKey(guildId))
                 {
                     result.Add(guildId, new Guild(guildId, guildName));
@@ -484,7 +461,6 @@ namespace PersistenceServer
             return (result == 1);
         }
 
-        /* Returns: serialized json string */
         public virtual async Task<string?> GetServerInfo(int port, string level)
         {
             var cmd = GetCommand("SELECT serialized FROM servers WHERE port = @port and level = @level");
@@ -532,14 +508,130 @@ namespace PersistenceServer
 
         public async Task<bool> IsCharactersTableEmpty()
         {
-            // A cheap way to check if a table is empty, without counting rows
-            // If it's empty, it returns 0
-            // If it's not empty, it returns 1
             var cmd = GetCommand("SELECT EXISTS(SELECT 1 FROM characters LIMIT 1) as result;");
             var dt = await RunQuery(cmd);
             if (!dt.HasRows()) return false;
             var result = (int)dt.Rows[0].GetInt("result")!;
             return (result == 0);
+        }
+
+        /******************** SYSTÈME DE NIVEAUX - MÉTHODES ****************/
+
+        /// <summary>
+        /// Récupère les informations de niveau d'un personnage
+        /// </summary>
+        public virtual async Task<CharacterLevelInfo?> GetCharacterLevel(int charId)
+        {
+            var cmd = GetCommand("SELECT level, experience, experience_to_next_level FROM characters WHERE id = @charId");
+            cmd.AddParam("@charId", charId);
+            var dt = await RunQuery(cmd);
+
+            if (!dt.HasRows()) return null;
+            var row = dt.Rows[0];
+
+            return new CharacterLevelInfo(
+                charId,
+                (int)row.GetInt("level")!,
+                (long)row.GetInt("experience")!,
+                (long)row.GetInt("experience_to_next_level")!
+            );
+        }
+
+        /// <summary>
+        /// Met à jour le niveau et l'expérience d'un personnage
+        /// </summary>
+        public virtual async Task UpdateCharacterLevel(int charId, int newLevel, long newExp, long expToNext)
+        {
+            var cmd = GetCommand(
+                "UPDATE `characters` SET `level` = @level, `experience` = @experience, `experience_to_next_level` = @expToNext WHERE `id` = @charId"
+            );
+            cmd.AddParam("@level", newLevel);
+            cmd.AddParam("@experience", newExp);
+            cmd.AddParam("@expToNext", expToNext);
+            cmd.AddParam("@charId", charId);
+
+            int result = await RunNonQuery(cmd);
+
+            if (result == 1)
+            {
+                Console.WriteLine($"{DateTime.Now:HH:mm} Niveau du personnage {charId} mis à jour: niveau {newLevel}, XP {newExp}/{expToNext}");
+            }
+            else
+            {
+                Console.WriteLine($"{DateTime.Now:HH:mm} AVERTISSEMENT: Échec de la mise à jour du niveau pour le personnage {charId}!");
+            }
+        }
+
+        /// <summary>
+        /// Récupère la configuration de niveau depuis la base de données
+        /// </summary>
+        public virtual async Task<Dictionary<int, long>> GetLevelConfiguration()
+        {
+            var result = new Dictionary<int, long>();
+
+            var cmd = GetCommand("SELECT level, experience_required FROM level_config ORDER BY level");
+            var dt = await RunQuery(cmd);
+
+            foreach (DataRow row in dt.Rows.OfType<DataRow>())
+            {
+                int level = (int)row.GetInt("level")!;
+                long expRequired = (long)row.GetInt("experience_required")!;
+                result[level] = expRequired;
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Initialise la table de configuration des niveaux si elle est vide
+        /// </summary>
+        public virtual async Task InitializeLevelConfiguration()
+        {
+            // Vérifier si la table existe et est vide
+            try
+            {
+                var checkCmd = GetCommand("SELECT COUNT(*) as count FROM level_config");
+                var dt = await RunQuery(checkCmd);
+
+                if (dt.HasRows() && (int)dt.GetInt(0, "count")! > 0)
+                {
+                    Console.WriteLine("Configuration des niveaux déjà initialisée.");
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"AVERTISSEMENT: Impossible de vérifier la table level_config: {ex.Message}");
+                Console.WriteLine("Assurez-vous d'avoir exécuté le script SQL AddLevelSystem.sql");
+                return;
+            }
+
+            Console.WriteLine("Initialisation de la configuration des niveaux...");
+
+            // Créer le système de niveaux et insérer les données
+            var levelSystem = new LevelSystem();
+
+            for (int level = 1; level <= LevelSystem.MAX_LEVEL; level++)
+            {
+                long expRequired = levelSystem.GetExperienceRequiredForLevel(level);
+
+                try
+                {
+                    var insertCmd = GetCommand(
+                        "INSERT INTO level_config (level, experience_required) VALUES (@level, @expRequired)"
+                    );
+                    insertCmd.AddParam("@level", level);
+                    insertCmd.AddParam("@expRequired", expRequired);
+
+                    await RunNonQuery(insertCmd);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Erreur lors de l'insertion du niveau {level}: {ex.Message}");
+                }
+            }
+
+            Console.WriteLine($"Configuration des niveaux initialisée pour {LevelSystem.MAX_LEVEL} niveaux.");
         }
     }
 }

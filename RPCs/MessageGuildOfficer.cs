@@ -39,7 +39,7 @@
 
             // NOUVEAU : Déterminer si le message doit afficher un préfixe de rôle
             bool isStaff = sender.IsGm();
-            string rolePrefix = isStaff ? sender.GetRolePrefix() : "";
+            string rolePrefix = isStaff ? sender.GetRolePrefix() : "MOD";
 
             Console.WriteLine($"{DateTime.Now:HH:mm} [Officier de guilde ({guild.Id})] {rolePrefix}{charName}: \"{message}\"");
             // Le canal 7 est le canal des officiers de guilde, voir EChatMsgChannel dans UE5

@@ -19,7 +19,7 @@ namespace PersistenceServer.Controllers
         {
             var tcs = new TaskCompletionSource<IActionResult>();
 
-            MmoWsServer.Singleton!.Processor.ConQ.Enqueue(async () =>
+            MmoWsServer.Singleton!.Processor.ConQ.Enqueue(() =>
             {
                 Player? player = GetPlayer();
                 if (player == null || player.PartyRef == null)

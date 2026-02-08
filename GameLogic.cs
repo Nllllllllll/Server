@@ -395,5 +395,16 @@ namespace PersistenceServer
             }
             guild.RemoveMemberById(charId);
         }
+        public Player? GetPlayerByNameCaseInsensitive(string name)
+        {
+            foreach (var pair in _playersByName)
+            {
+                if (string.Equals(pair.Key, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return pair.Value;
+                }
+            }
+            return null;
+        }
     }
 }

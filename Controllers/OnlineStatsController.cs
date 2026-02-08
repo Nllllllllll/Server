@@ -20,8 +20,8 @@ namespace PersistenceServer.Controllers
         {
             var tcs = new TaskCompletionSource<IActionResult>();
 
-            MmoWsServer.Singleton!.Processor.ConQ.Enqueue(async () =>
-            {                
+            MmoWsServer.Singleton!.Processor.ConQ.Enqueue(() =>
+            {
                 dynamic response = new ExpandoObject();
                 response.Players = MmoWsServer.Singleton!.GameLogic.GetPlayersOnline();
                 tcs.SetResult(Ok(response));

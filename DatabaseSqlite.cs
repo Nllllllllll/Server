@@ -28,7 +28,7 @@ namespace PersistenceServer
             // s'il y a 0 tables, ça signifie que la base de données est nouvelle, donc on les crée
             if (getTablesQuery.GetBigInt(0, "count(*)") == 0) // count retourne BigInt
             {
-                Console.Write("Base de données non trouvée ou vide : création...");
+                Console.Write("Base de données non trouvée ou vide : création...");
 
                 // créer les tables
                 await RunNonQuery(
@@ -40,6 +40,8 @@ namespace PersistenceServer
 	                    ""salt""	TEXT,
 	                    ""email""	TEXT,
 	                    ""status""	INTEGER,
+	                    ""last_ip""	TEXT,
+	                    ""last_mac""	TEXT,
 	                    PRIMARY KEY(""id"" AUTOINCREMENT),
 	                    UNIQUE(""name"")
                     );
@@ -64,6 +66,7 @@ namespace PersistenceServer
 	                    ""guildrank""	INTEGER,
                         ""permissions"" INTEGER NOT NULL DEFAULT 0,
 	                    ""serialized""	TEXT,
+	                    ""prefix""	TEXT,
 	                    PRIMARY KEY(""id"" AUTOINCREMENT),
 	                    UNIQUE(""name""),
                         FOREIGN KEY(""owner"") REFERENCES ""accounts""(""id"") ON UPDATE CASCADE ON DELETE SET NULL,
@@ -100,6 +103,25 @@ namespace PersistenceServer
             else
             {
                 Console.WriteLine($"Base de données trouvée: {settings.SqliteFilename}");
+                
+                // Vérifier si la colonne prefix existe et l'ajouter si nécessaire
+                var checkColumnQuery = await RunQuery("PRAGMA table_info(characters);");
+                bool hasPrefix = false;
+                foreach (DataRow row in checkColumnQuery.Rows)
+                {
+                    if (row["name"].ToString() == "prefix")
+                    {
+                        hasPrefix = true;
+                        break;
+                    }
+                }
+                
+                if (!hasPrefix)
+                {
+                    Console.Write("Ajout de la colonne 'prefix' à la table characters...");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN prefix TEXT;");
+                    Console.WriteLine("Fait.");
+                }
             }
         }
 

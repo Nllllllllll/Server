@@ -1,15 +1,14 @@
-﻿namespace PersistenceServer.RPCs
+﻿using Newtonsoft.Json.Linq;
+
+namespace PersistenceServer.RPCs
 {
     public class SaveCharacter : BaseRpc
     {
         public SaveCharacter()
         {
-            RpcType = RpcType.RpcSaveCharacter; // définis-le sur le RpcType que tu veux intercepter
+            RpcType = RpcType.RpcSaveCharacter;
         }
 
-        // Lis le message depuis le lecteur, puis ajoute une Action dans la file d'attente concurrente server.Processor.ConQ  
-        // Par exemple : Server!.Processor.ConQ.Enqueue(() => Console.WriteLine("comme ceci"));  
-        // Consulte les autres RPC pour plus d'exemples.
         protected override void ReadRpc(UserConnection connection, BinaryReader reader)
         {
             int charId = reader.ReadInt32();
@@ -21,8 +20,34 @@
         {
             if (!Server!.GameLogic.IsServer(conn))
             {
-                Console.WriteLine("Action illégale : aucun serveur n'a tenté de SaveCharacter RPC. Cela ne doit jamais se produire : enquêtez si cela se produit.");
+                Console.WriteLine("Action illégale : aucun serveur n'a tenté de SaveCharacter RPC. Cela ne doit jamais se produire : enquêtez si cela se produit.");
                 return;
+            }
+
+
+            // Écrasé le Title selon les permissions avant sauvegarde en BDD
+            var player = Server!.GameLogic.GetPlayerById(charId);
+            if (player != null)
+            {
+                var jsonObject = JObject.Parse(serializedCharacter);
+
+                // Ajoute du prefix dans le Json
+                
+                jsonObject["Stats"]!["prefix"] = player.Permissions switch
+                {
+                    >= 10 => "MOD",
+                    _ => ""
+                };
+
+                jsonObject["Stats"]!["title"] = player.Permissions switch
+                {
+                    >= 11 => "Fondateur",
+                    >= 10 => "Administrateur",
+                    >= 6 => "Modérateur",
+                    >= 5 => "Maître du jeu",
+                    _ => ""
+                };
+                serializedCharacter = jsonObject.ToString();
             }
 
             await Server!.Database.SaveCharacter(charId, serializedCharacter);

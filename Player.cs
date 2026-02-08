@@ -12,9 +12,13 @@ namespace PersistenceServer
         public UserConnection Conn;
         public int CharId;
         public int AccountId;
-        public int GuildId; // -1 pour sans guilde
-        public int GuildRank; // -1 pour sans guilde
-        public int Permissions; // 0 pour joueur, 10 pour MOD, 11 pour GM
+        public int GuildId;
+        public int GuildRank;
+        public int Permissions;
+        public string Prefix;  // NOUVEAU
+        public int Level { get; set; } = 1;
+        public long Experience { get; set; } = 0;
+        public long ExperienceToNextLevel { get; set; } = 100;
         public Party? PartyRef;
         public string PartyId { get { return PartyRef != null ? PartyRef.Id : ""; } }
 
@@ -29,6 +33,10 @@ namespace PersistenceServer
             GuildId = dbPlayer.Guild ?? -1;
             GuildRank = dbPlayer.GuildRank ?? -1;
             Permissions = dbPlayer.Permissions;
+            Prefix = dbPlayer.Prefix ?? "";  // NOUVEAU
+            Level = dbPlayer.Level;
+            Experience = dbPlayer.Experience;
+            ExperienceToNextLevel = dbPlayer.ExperienceToNextLevel;
         }
 
         public bool IsGm()
@@ -49,12 +57,7 @@ namespace PersistenceServer
         // NOUVELLE MÉTHODE
         public string GetRolePrefix()
         {
-            if (Permissions >= 11)
-                return "<GM>";
-            else if (Permissions == 10)
-                return "<MOD>";
-            else
-                return "";
+            return Prefix;
         }
 
 
