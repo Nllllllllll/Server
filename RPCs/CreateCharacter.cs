@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace PersistenceServer.RPCs
 {
@@ -6,12 +6,9 @@ namespace PersistenceServer.RPCs
     {
         public CreateCharacter()
         {
-            RpcType = RpcType.RpcCreateCharacter; // set it to the RpcType you want to catch
+            RpcType = RpcType.RpcCreateCharacter;
         }
 
-        // Read message from the reader, then enqueue an Action on the concurrent queue server.Processor.ConQ
-        // For example: Server!.Processor.ConQ.Enqueue(() => Console.WriteLine("like this"));
-        // Look at other RPCs for more examples
         protected override void ReadRpc(UserConnection connection, BinaryReader reader)
         {
             string playerName = reader.ReadMmoString();
@@ -23,26 +20,28 @@ namespace PersistenceServer.RPCs
         {
             if (!IsNamedAllowed(ref playerName))
             {
-                Console.WriteLine($"Création d'un joueur nommé '{playerName}' échec : nom de caractère non valide");
-                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false)); // sending false to signify "failure"
+                Console.WriteLine($"Création d'un joueur nommé '{playerName}' échec : nom de caractère non valide");
+                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false));
                 connection.Send(errMsg);
                 return;
             }
+            
             if (await Server!.Database.DoesCharnameExist(playerName))
             {
-                Console.WriteLine($"Création d'un joueur nommé '{playerName}' échec : nom de caractère pris");
-                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false)); // sending false to signify "failure"
+                Console.WriteLine($"Création d'un joueur nommé '{playerName}' échec : nom de caractère pris");
+                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false));
                 connection.Send(errMsg);
                 return;
             }
 
-            // Check if 'NewCharacter' is present in serializedCharacter and is true
-            // Otherwise, an exploit is possible: a tampered packet could add a fully levelled up, fully equipped character into the database
+            // Vérifier que 'NewCharacter' est présent et vrai
             JObject jsonObject = JObject.Parse(serializedCharacter);
-            if (!jsonObject.TryGetValue("NewCharacter", out JToken? value) || value.Type != JTokenType.Boolean || !value.ToObject<bool>())
+            if (!jsonObject.TryGetValue("NewCharacter", out JToken? value) || 
+                value.Type != JTokenType.Boolean || 
+                !value.ToObject<bool>())
             {
                 Console.WriteLine("Le champ 'NewCharacter' est absent ou incorrect dans le paquet de création de personnage. Le joueur a tenté de tricher.");
-                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false)); // sending false to signify "failure"
+                byte[] errMsg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(false));
                 connection.Send(errMsg);
                 return;
             }
@@ -50,8 +49,8 @@ namespace PersistenceServer.RPCs
             int accountId = Server!.GameLogic.GetAccountId(connection);
             if (accountId == -1)
             {
-                Console.WriteLine("La création du lecteur a échoué : l'utilisateur n'est pas connecté. Cela ne doit jamais arriver.");
-                _ = connection.Disconnect(); // not awaited
+                Console.WriteLine("La création du personnage a échoué : l'utilisateur n'est pas connecté. Cela ne doit jamais arriver.");
+                _ = connection.Disconnect();
                 return;
             }
 
@@ -61,13 +60,24 @@ namespace PersistenceServer.RPCs
                 Console.WriteLine($"Aucun personnage existant dans la base de données. Création d'un personnage GM (permissions: 11).");
             }
 
+            // Parser le JSON pour créer DatabaseCharacterInfo
+            var charInfo = DatabaseCharacterInfo.FromSerializedJson(
+                serializedCharacter,
+                accountId,
+                0, // L'ID sera généré par la base de données
+                playerName,
+                gmCharacter ? 11 : 0,
+                null,
+                null,
+                ""
+            );
+
             Console.Write($"Création d'un personnage nommé: '{playerName}', ");
-            int playerId = await Server!.Database.CreateCharacter(playerName, accountId, gmCharacter, serializedCharacter);
+            int playerId = await Server!.Database.CreateCharacter(playerName, accountId, gmCharacter, charInfo);
             Console.WriteLine($"id: {playerId}");
 
-            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(true)); // sending false to signify "success"
+            byte[] msg = MergeByteArrays(ToBytes(RpcType.RpcCreateCharacter), ToBytes(true));
             connection.Send(msg);
-
         }
 
         //@TODO for the developer: implement various name checks, e.g. use a blacklist

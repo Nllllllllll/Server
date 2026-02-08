@@ -3,23 +3,123 @@ using System.Data;
 using System.Data.Common;
 using System.Diagnostics;
 using System.Text;
+using Newtonsoft.Json.Linq;
 
 namespace PersistenceServer
 {
     public class DatabaseCharacterInfo
     {
-        public int AccountId;
-        public int CharId;
-        public string Name = "";
-        public int Permissions;
-        public string SerializedCharacter = "";
-        public int? Guild;
-        public int? GuildRank;
-        public string Prefix = "";
+        public int AccountId { get; set; }
+        public int CharId { get; set; }
+        public string Name { get; set; } = "";
+        public int Permissions { get; set; }
+        public int? Guild { get; set; }
+        public int? GuildRank { get; set; }
+        public string Prefix { get; set; } = "";
+
         // Propriétés du système de niveaux
         public int Level { get; set; } = 1;
         public long Experience { get; set; } = 0;
         public long ExperienceToNextLevel { get; set; } = 100;
+
+        // Nouvelles propriétés individuelles (remplacent SerializedCharacter)
+        public string Class { get; set; } = "";
+        public string Species { get; set; } = "";
+        public string Gender { get; set; } = "";
+        public string Appearance { get; set; } = "{}"; // JSON pour les détails d'apparence
+        public string Stats { get; set; } = "{}"; // JSON pour les statistiques
+        public string Inventory { get; set; } = "{}"; // JSON pour l'inventaire
+        public string Equipment { get; set; } = "{}"; // JSON pour l'équipement
+        public string Abilities { get; set; } = "{}"; // JSON pour les capacités
+        public string Quests { get; set; } = "{}"; // JSON pour les quêtes
+        public string Zone { get; set; } = "";
+        public float PositionX { get; set; } = 0f;
+        public float PositionY { get; set; } = 0f;
+        public float PositionZ { get; set; } = 0f;
+        public float RotationYaw { get; set; } = 0f;
+        public bool IsNewCharacter { get; set; } = false;
+
+        // Méthode pour convertir en JSON (pour compatibilité avec le code existant)
+        public string ToSerializedJson()
+        {
+            var statsObj = string.IsNullOrEmpty(Stats) || Stats == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Stats);
+            var appearanceObj = string.IsNullOrEmpty(Appearance) || Appearance == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Appearance);
+            var inventoryObj = string.IsNullOrEmpty(Inventory) || Inventory == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Inventory);
+            var equipmentObj = string.IsNullOrEmpty(Equipment) || Equipment == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Equipment);
+            var abilitiesObj = string.IsNullOrEmpty(Abilities) || Abilities == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Abilities);
+            var questsObj = string.IsNullOrEmpty(Quests) || Quests == "{}" ? new { } : Newtonsoft.Json.JsonConvert.DeserializeObject(Quests);
+
+            return Newtonsoft.Json.JsonConvert.SerializeObject(new
+            {
+                Class = this.Class,
+                Species = this.Species,
+                Gender = this.Gender,
+                Appearance = appearanceObj,
+                Stats = statsObj,
+                Inventory = inventoryObj,
+                Equipment = equipmentObj,
+                Abilities = abilitiesObj,
+                Quests = questsObj,
+                Zone = this.Zone,
+                Position = new { X = this.PositionX, Y = this.PositionY, Z = this.PositionZ },
+                Rotation = new { Yaw = this.RotationYaw },
+                NewCharacter = this.IsNewCharacter
+            });
+        }
+
+        // Méthode pour parser depuis JSON (pour la migration et la sauvegarde)
+        public static DatabaseCharacterInfo FromSerializedJson(string json, int accountId, int charId, string name, int permissions, int? guild, int? guildRank, string prefix)
+        {
+            var info = new DatabaseCharacterInfo
+            {
+                AccountId = accountId,
+                CharId = charId,
+                Name = name,
+                Permissions = permissions,
+                Guild = guild,
+                GuildRank = guildRank,
+                Prefix = prefix
+            };
+
+            try
+            {
+                var jsonObject = JObject.Parse(json);
+
+                info.Class = jsonObject["Class"]?.ToString() ?? "";
+                info.Species = jsonObject["Species"]?.ToString() ?? "";
+                info.Gender = jsonObject["Gender"]?.ToString() ?? "";
+
+                // Parser les sous-objets JSON
+                info.Appearance = jsonObject["Appearance"]?.ToString() ?? "{}";
+                info.Stats = jsonObject["Stats"]?.ToString() ?? "{}";
+                info.Inventory = jsonObject["Inventory"]?.ToString() ?? "{}";
+                info.Equipment = jsonObject["Equipment"]?.ToString() ?? "{}";
+                info.Abilities = jsonObject["Abilities"]?.ToString() ?? "{}";
+                info.Quests = jsonObject["Quests"]?.ToString() ?? "{}";
+
+                info.Zone = jsonObject["Zone"]?.ToString() ?? "";
+
+                if (jsonObject["Position"] != null)
+                {
+                    info.PositionX = jsonObject["Position"]?["X"]?.Value<float>() ?? 0f;
+                    info.PositionY = jsonObject["Position"]?["Y"]?.Value<float>() ?? 0f;
+                    info.PositionZ = jsonObject["Position"]?["Z"]?.Value<float>() ?? 0f;
+                }
+
+                if (jsonObject["Rotation"] != null)
+                {
+                    info.RotationYaw = jsonObject["Rotation"]?["Yaw"]?.Value<float>() ?? 0f;
+                }
+
+                info.IsNewCharacter = jsonObject["NewCharacter"]?.Value<bool>() ?? false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Erreur lors du parsing du JSON pour le personnage {charId}: {ex.Message}");
+            }
+
+            return info;
+        }
     }
 
     public class DatabaseAccountInfo
@@ -106,11 +206,18 @@ namespace PersistenceServer
 
         protected async Task<int> RunInsert(DbCommand command)
         {
-            command.CommandText += GetIdentitySqlCommand;
             await using var conn = await GetConnection(ConnectionParams);
             command.Connection = conn;
-            object? obj = await command.ExecuteScalarAsync();
+
+            // Exécuter l'insertion
+            await command.ExecuteNonQueryAsync();
+
+            // Récupérer l'ID inséré avec une commande séparée
+            var idCmd = GetCommand(GetIdentitySqlCommand, conn);
+            object? obj = await idCmd.ExecuteScalarAsync();
             await command.DisposeAsync();
+            await idCmd.DisposeAsync();
+
             return (int)Convert.ChangeType(obj!, typeof(int));
         }
 
@@ -224,13 +331,45 @@ namespace PersistenceServer
             return dt.HasRows();
         }
 
-        public virtual async Task<int> CreateCharacter(string charName, int ownerAccountId, bool gmCharacter, string serializedCharacter)
+        public virtual async Task<int> CreateCharacter(string charName, int ownerAccountId, bool gmCharacter, DatabaseCharacterInfo charInfo)
         {
-            var cmd = GetCommand("INSERT INTO `characters` (`id`, `name`, `owner`, `guild`, `guildrank`, `permissions`, `serialized`) VALUES (NULL, @charName, @ownerAccountId, NULL, NULL, @permissions, @serialized);");
+            var cmd = GetCommand(@"
+                INSERT INTO characters 
+                (id, name, owner, guild, guildrank, permissions, prefix,
+                 level, experience, experience_to_next_level,
+                 class, species, gender, appearance, stats, inventory, equipment,
+                 abilities, quests, zone, position_x, position_y, position_z,
+                 rotation_yaw, is_new_character)
+                VALUES 
+                (NULL, @charName, @ownerAccountId, NULL, NULL, @permissions, '',
+                 @level, @experience, @expToNext,
+                 @class, @species, @gender, @appearance, @stats, @inventory, @equipment,
+                 @abilities, @quests, @zone, @posX, @posY, @posZ,
+                 @rotYaw, @isNew)
+            ");
+
             cmd.AddParam("@charName", charName);
             cmd.AddParam("@ownerAccountId", ownerAccountId);
             cmd.AddParam("@permissions", gmCharacter ? 11 : 0);
-            cmd.AddParam("@serialized", serializedCharacter);
+            cmd.AddParam("@level", charInfo.Level);
+            cmd.AddParam("@experience", charInfo.Experience);
+            cmd.AddParam("@expToNext", charInfo.ExperienceToNextLevel);
+            cmd.AddParam("@class", charInfo.Class);
+            cmd.AddParam("@species", charInfo.Species);
+            cmd.AddParam("@gender", charInfo.Gender);
+            cmd.AddParam("@appearance", charInfo.Appearance);
+            cmd.AddParam("@stats", charInfo.Stats);
+            cmd.AddParam("@inventory", charInfo.Inventory);
+            cmd.AddParam("@equipment", charInfo.Equipment);
+            cmd.AddParam("@abilities", charInfo.Abilities);
+            cmd.AddParam("@quests", charInfo.Quests);
+            cmd.AddParam("@zone", charInfo.Zone);
+            cmd.AddParam("@posX", charInfo.PositionX);
+            cmd.AddParam("@posY", charInfo.PositionY);
+            cmd.AddParam("@posZ", charInfo.PositionZ);
+            cmd.AddParam("@rotYaw", charInfo.RotationYaw);
+            cmd.AddParam("@isNew", charInfo.IsNewCharacter);
+
             int lastInsertedId = await RunInsert(cmd);
             return lastInsertedId;
         }
@@ -239,9 +378,18 @@ namespace PersistenceServer
         {
             List<DatabaseCharacterInfo> result = new();
 
-            var cmd = GetCommand("SELECT * FROM characters WHERE owner = @accountId");
+            var cmd = GetCommand(@"
+                SELECT id, owner, name, permissions, guild, guildrank, prefix,
+                       level, experience, experience_to_next_level,
+                       class, species, gender, appearance, stats, inventory, equipment,
+                       abilities, quests, zone, position_x, position_y, position_z,
+                       rotation_yaw, is_new_character
+                FROM characters 
+                WHERE owner = @accountId
+            ");
             cmd.AddParam("@accountId", accountId);
             var dt = await RunQuery(cmd);
+
             foreach (var row in dt.Rows.OfType<DataRow>())
             {
                 DatabaseCharacterInfo charInfo = new()
@@ -250,14 +398,28 @@ namespace PersistenceServer
                     CharId = (int)row.GetInt("id")!,
                     Name = row.GetString("name")!,
                     Permissions = (int)row.GetInt("permissions")!,
-                    SerializedCharacter = row.GetString("serialized")!,
                     Guild = row.GetInt("guild"),
                     GuildRank = row.GetInt("guildrank"),
                     Prefix = row.GetString("prefix") ?? "",
-                    // AJOUT SYSTÈME DE NIVEAUX
                     Level = (int)(row.GetInt("level") ?? 1),
                     Experience = (long)(row.GetInt("experience") ?? 0),
-                    ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
+                    ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100),
+
+                    Class = row.GetString("class") ?? "",
+                    Species = row.GetString("species") ?? "",
+                    Gender = row.GetString("gender") ?? "",
+                    Appearance = row.GetString("appearance") ?? "{}",
+                    Stats = row.GetString("stats") ?? "{}",
+                    Inventory = row.GetString("inventory") ?? "{}",
+                    Equipment = row.GetString("equipment") ?? "{}",
+                    Abilities = row.GetString("abilities") ?? "{}",
+                    Quests = row.GetString("quests") ?? "{}",
+                    Zone = row.GetString("zone") ?? "",
+                    PositionX = row["position_x"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_x"]),
+                    PositionY = row["position_y"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_y"]),
+                    PositionZ = row["position_z"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_z"]),
+                    RotationYaw = row["rotation_yaw"] == DBNull.Value ? 0f : Convert.ToSingle(row["rotation_yaw"]),
+                    IsNewCharacter = row.GetInt("is_new_character") == 1
                 };
                 result.Add(charInfo);
             }
@@ -267,7 +429,15 @@ namespace PersistenceServer
 
         public virtual async Task<DatabaseCharacterInfo?> GetCharacter(int charId, int accountId)
         {
-            var cmd = GetCommand("SELECT * FROM characters WHERE id = @charId and owner = @accountId");
+            var cmd = GetCommand(@"
+                SELECT id, owner, name, permissions, guild, guildrank, prefix, 
+                       level, experience, experience_to_next_level,
+                       class, species, gender, appearance, stats, inventory, equipment, 
+                       abilities, quests, zone, position_x, position_y, position_z, 
+                       rotation_yaw, is_new_character
+                FROM characters 
+                WHERE id = @charId AND owner = @accountId
+            ");
             cmd.AddParam("@charId", charId);
             cmd.AddParam("@accountId", accountId);
             var dt = await RunQuery(cmd);
@@ -280,21 +450,44 @@ namespace PersistenceServer
                 CharId = (int)row.GetInt("id")!,
                 Name = row.GetString("name")!,
                 Permissions = (int)row.GetInt("permissions")!,
-                SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
                 GuildRank = row.GetInt("guildrank"),
                 Prefix = row.GetString("prefix") ?? "",
-                // AJOUT SYSTÈME DE NIVEAUX
                 Level = (int)(row.GetInt("level") ?? 1),
                 Experience = (long)(row.GetInt("experience") ?? 0),
-                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100),
+
+                // Nouvelles colonnes
+                Class = row.GetString("class") ?? "",
+                Species = row.GetString("species") ?? "",
+                Gender = row.GetString("gender") ?? "",
+                Appearance = row.GetString("appearance") ?? "{}",
+                Stats = row.GetString("stats") ?? "{}",
+                Inventory = row.GetString("inventory") ?? "{}",
+                Equipment = row.GetString("equipment") ?? "{}",
+                Abilities = row.GetString("abilities") ?? "{}",
+                Quests = row.GetString("quests") ?? "{}",
+                Zone = row.GetString("zone") ?? "",
+                PositionX = row["position_x"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_x"]),
+                PositionY = row["position_y"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_y"]),
+                PositionZ = row["position_z"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_z"]),
+                RotationYaw = row["rotation_yaw"] == DBNull.Value ? 0f : Convert.ToSingle(row["rotation_yaw"]),
+                IsNewCharacter = row.GetInt("is_new_character") == 1
             };
             return character;
         }
 
         public virtual async Task<DatabaseCharacterInfo?> GetCharacterByName(string charName, int accountId)
         {
-            var cmd = GetCommand("SELECT * FROM characters WHERE name = @charName and owner = @accountId");
+            var cmd = GetCommand(@"
+                SELECT id, owner, name, permissions, guild, guildrank, prefix,
+                       level, experience, experience_to_next_level,
+                       class, species, gender, appearance, stats, inventory, equipment,
+                       abilities, quests, zone, position_x, position_y, position_z,
+                       rotation_yaw, is_new_character
+                FROM characters 
+                WHERE name = @charName AND owner = @accountId
+            ");
             cmd.AddParam("@charName", charName);
             cmd.AddParam("@accountId", accountId);
             var dt = await RunQuery(cmd);
@@ -307,21 +500,44 @@ namespace PersistenceServer
                 CharId = (int)row.GetInt("id")!,
                 Name = row.GetString("name")!,
                 Permissions = (int)row.GetInt("permissions")!,
-                SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
                 GuildRank = row.GetInt("guildrank"),
                 Prefix = row.GetString("prefix") ?? "",
-                // AJOUT SYSTÈME DE NIVEAUX
                 Level = (int)(row.GetInt("level") ?? 1),
                 Experience = (long)(row.GetInt("experience") ?? 0),
-                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100),
+
+                Class = row.GetString("class") ?? "",
+                Species = row.GetString("species") ?? "",
+                Gender = row.GetString("gender") ?? "",
+                Appearance = row.GetString("appearance") ?? "{}",
+                Stats = row.GetString("stats") ?? "{}",
+                Inventory = row.GetString("inventory") ?? "{}",
+                Equipment = row.GetString("equipment") ?? "{}",
+                Abilities = row.GetString("abilities") ?? "{}",
+                Quests = row.GetString("quests") ?? "{}",
+                Zone = row.GetString("zone") ?? "",
+                PositionX = row["position_x"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_x"]),
+                PositionY = row["position_y"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_y"]),
+                PositionZ = row["position_z"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_z"]),
+                RotationYaw = row["rotation_yaw"] == DBNull.Value ? 0f : Convert.ToSingle(row["rotation_yaw"]),
+                IsNewCharacter = row.GetInt("is_new_character") == 1
             };
             return character;
         }
 
         public virtual async Task<DatabaseCharacterInfo?> GetCharacterForPieWindow(int pieWindowId)
         {
-            var cmd = GetCommand("SELECT * FROM `characters` ORDER BY id ASC LIMIT @pieWindowId,1 ");
+            var cmd = GetCommand(@"
+                SELECT id, owner, name, permissions, guild, guildrank, prefix,
+                       level, experience, experience_to_next_level,
+                       class, species, gender, appearance, stats, inventory, equipment,
+                       abilities, quests, zone, position_x, position_y, position_z,
+                       rotation_yaw, is_new_character
+                FROM characters 
+                ORDER BY id ASC 
+                LIMIT @pieWindowId,1
+            ");
             cmd.AddParam("@pieWindowId", pieWindowId);
             var dt = await RunQuery(cmd);
             if (!dt.HasRows()) return null;
@@ -333,26 +549,76 @@ namespace PersistenceServer
                 CharId = (int)row.GetInt("id")!,
                 Name = row.GetString("name")!,
                 Permissions = (int)row.GetInt("permissions")!,
-                SerializedCharacter = row.GetString("serialized")!,
                 Guild = row.GetInt("guild"),
                 GuildRank = row.GetInt("guildrank"),
                 Prefix = row.GetString("prefix") ?? "",
-                // AJOUT SYSTÈME DE NIVEAUX
                 Level = (int)(row.GetInt("level") ?? 1),
                 Experience = (long)(row.GetInt("experience") ?? 0),
-                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100)
+                ExperienceToNextLevel = (long)(row.GetInt("experience_to_next_level") ?? 100),
+
+                Class = row.GetString("class") ?? "",
+                Species = row.GetString("species") ?? "",
+                Gender = row.GetString("gender") ?? "",
+                Appearance = row.GetString("appearance") ?? "{}",
+                Stats = row.GetString("stats") ?? "{}",
+                Inventory = row.GetString("inventory") ?? "{}",
+                Equipment = row.GetString("equipment") ?? "{}",
+                Abilities = row.GetString("abilities") ?? "{}",
+                Quests = row.GetString("quests") ?? "{}",
+                Zone = row.GetString("zone") ?? "",
+                PositionX = row["position_x"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_x"]),
+                PositionY = row["position_y"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_y"]),
+                PositionZ = row["position_z"] == DBNull.Value ? 0f : Convert.ToSingle(row["position_z"]),
+                RotationYaw = row["rotation_yaw"] == DBNull.Value ? 0f : Convert.ToSingle(row["rotation_yaw"]),
+                IsNewCharacter = row.GetInt("is_new_character") == 1
             };
             return charInfo;
         }
 
-        public async Task SaveCharacter(int charId, string serializedCharacter)
+        public async Task SaveCharacter(int charId, DatabaseCharacterInfo charInfo)
         {
-            var cmd = GetCommand("UPDATE `characters` SET serialized = @serializedChar WHERE id = @charId");
+            var cmd = GetCommand(@"
+                UPDATE characters SET 
+                    class = @class,
+                    species = @species,
+                    gender = @gender,
+                    appearance = @appearance,
+                    stats = @stats,
+                    inventory = @inventory,
+                    equipment = @equipment,
+                    abilities = @abilities,
+                    quests = @quests,
+                    zone = @zone,
+                    position_x = @posX,
+                    position_y = @posY,
+                    position_z = @posZ,
+                    rotation_yaw = @rotYaw,
+                    is_new_character = @isNew
+                WHERE id = @charId
+            ");
+
             cmd.AddParam("@charId", charId);
-            cmd.AddParam("@serializedChar", serializedCharacter);
+            cmd.AddParam("@class", charInfo.Class);
+            cmd.AddParam("@species", charInfo.Species);
+            cmd.AddParam("@gender", charInfo.Gender);
+            cmd.AddParam("@appearance", charInfo.Appearance);
+            cmd.AddParam("@stats", charInfo.Stats);
+            cmd.AddParam("@inventory", charInfo.Inventory);
+            cmd.AddParam("@equipment", charInfo.Equipment);
+            cmd.AddParam("@abilities", charInfo.Abilities);
+            cmd.AddParam("@quests", charInfo.Quests);
+            cmd.AddParam("@zone", charInfo.Zone);
+            cmd.AddParam("@posX", charInfo.PositionX);
+            cmd.AddParam("@posY", charInfo.PositionY);
+            cmd.AddParam("@posZ", charInfo.PositionZ);
+            cmd.AddParam("@rotYaw", charInfo.RotationYaw);
+            cmd.AddParam("@isNew", charInfo.IsNewCharacter);
+
             int result = await RunNonQuery(cmd);
-            if (result == 1) Console.WriteLine($"{DateTime.Now:HH:mm} Character with id {charId} was saved to DB.");
-            else Console.WriteLine($"{DateTime.Now:HH:mm} Character wasn't saved: {charId}!");
+            if (result == 1)
+                Console.WriteLine($"{DateTime.Now:HH:mm} Character with id {charId} was saved to DB.");
+            else
+                Console.WriteLine($"{DateTime.Now:HH:mm} Character wasn't saved: {charId}!");
         }
 
         public async virtual Task<Dictionary<int, Guild>> GetGuilds()

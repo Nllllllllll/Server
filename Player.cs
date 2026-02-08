@@ -16,6 +16,7 @@ namespace PersistenceServer
         public int GuildRank;
         public int Permissions;
         public string Prefix;  // NOUVEAU
+        public string Title;  // NOUVEAU
         public int Level { get; set; } = 1;
         public long Experience { get; set; } = 0;
         public long ExperienceToNextLevel { get; set; } = 100;

@@ -1,4 +1,4 @@
-﻿using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Linq;
 
 namespace PersistenceServer.RPCs
 {
@@ -78,8 +78,11 @@ namespace PersistenceServer.RPCs
 
         private void SendCharinfoToConnection(DatabaseCharacterInfo charInfo, UserConnection connection)
         {
-            // Ajoute du prefix dans le Json
-            var jsonObject = JObject.Parse(charInfo.SerializedCharacter);
+            // Construire le JSON pour l'envoi (pour compatibilité avec le client UE5)
+            string serializedJson = charInfo.ToSerializedJson();
+
+            // Ajouter du prefix dans le Json
+            var jsonObject = JObject.Parse(serializedJson);
             jsonObject["Stats"]!["prefix"] = charInfo.Permissions switch
             {
                 >= 10 => "MOD",
@@ -87,8 +90,6 @@ namespace PersistenceServer.RPCs
             };
 
             // Modifier le Title dans le JSON selon les permissions avant l'envoi
-
-
             jsonObject["Stats"]!["title"] = charInfo.Permissions switch
             {
                 >= 11 => "Fondateur",
@@ -97,12 +98,12 @@ namespace PersistenceServer.RPCs
                 >= 5 => "Maître du jeu",
                 _ => ""
             };
-            charInfo.SerializedCharacter = jsonObject.ToString();
+            serializedJson = jsonObject.ToString();
 
             byte[] binAccountId = ToBytes(charInfo.AccountId);
             byte[] binCharId = ToBytes(charInfo.CharId);
             byte[] binCharname = WriteMmoString(charInfo.Name);
-            byte[] binSerialized = WriteMmoString(charInfo.SerializedCharacter);
+            byte[] binSerialized = WriteMmoString(serializedJson);
             byte[] binPermissions = ToBytes(charInfo.Permissions);
             byte[] binGuild = ToBytes(charInfo.Guild ?? -1);
             byte[] binGuildrank = ToBytes(charInfo.GuildRank ?? -1);

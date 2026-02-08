@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+using Microsoft.Data.Sqlite;
 using System.Data;
 using System.Data.Common;
 
@@ -23,80 +23,98 @@ namespace PersistenceServer
 
         public override async Task CheckCreateDatabase(SettingsReader settings)
         {
-            // obtenir le nombre de tables dans la base de données (depuis une table spéciale appelée sqlite_master)
             var getTablesQuery = await RunQuery($"SELECT count(*) FROM sqlite_master WHERE type = 'table';");
-            // s'il y a 0 tables, ça signifie que la base de données est nouvelle, donc on les crée
-            if (getTablesQuery.GetBigInt(0, "count(*)") == 0) // count retourne BigInt
+            
+            if (getTablesQuery.GetBigInt(0, "count(*)") == 0)
             {
                 Console.Write("Base de données non trouvée ou vide : création...");
 
-                // créer les tables
-                await RunNonQuery(
-                    @"CREATE TABLE ""accounts"" (
-	                    ""id""	INTEGER NOT NULL UNIQUE,
-	                    ""name""	TEXT UNIQUE,
-                        ""steamid""	TEXT UNIQUE,
-	                    ""password""	TEXT,
-	                    ""salt""	TEXT,
-	                    ""email""	TEXT,
-	                    ""status""	INTEGER,
-	                    ""last_ip""	TEXT,
-	                    ""last_mac""	TEXT,
-	                    PRIMARY KEY(""id"" AUTOINCREMENT),
-	                    UNIQUE(""name"")
+                await RunNonQuery(@"
+                    CREATE TABLE accounts (
+                        id INTEGER NOT NULL UNIQUE,
+                        name TEXT UNIQUE,
+                        steamid TEXT UNIQUE,
+                        password TEXT,
+                        salt TEXT,
+                        email TEXT,
+                        status INTEGER,
+                        last_ip TEXT,
+                        last_mac TEXT,
+                        PRIMARY KEY(id AUTOINCREMENT),
+                        UNIQUE(name)
                     );
-                    CREATE UNIQUE INDEX accname 
-                    ON accounts(name);
-                    CREATE UNIQUE INDEX accsteamid 
-                    ON accounts(steamid);
-                    CREATE TABLE ""guilds"" (
-	                    ""id""	INTEGER NOT NULL UNIQUE,
-	                    ""name""	TEXT UNIQUE,
-                        ""serialized""	TEXT,
-	                    PRIMARY KEY(""id"" AUTOINCREMENT),
-	                    UNIQUE(""name"")
+                    CREATE UNIQUE INDEX accname ON accounts(name);
+                    CREATE UNIQUE INDEX accsteamid ON accounts(steamid);
+                    
+                    CREATE TABLE guilds (
+                        id INTEGER NOT NULL UNIQUE,
+                        name TEXT UNIQUE,
+                        serialized TEXT,
+                        PRIMARY KEY(id AUTOINCREMENT),
+                        UNIQUE(name)
                     );
-                    CREATE UNIQUE INDEX guildname 
-                    ON guilds(name);
-                    CREATE TABLE ""characters"" (
-	                    ""id""	INTEGER NOT NULL UNIQUE,
-	                    ""name""	TEXT UNIQUE,
-                        ""owner""	INTEGER,
-	                    ""guild""	INTEGER,
-	                    ""guildrank""	INTEGER,
-                        ""permissions"" INTEGER NOT NULL DEFAULT 0,
-	                    ""serialized""	TEXT,
-	                    ""prefix""	TEXT,
-	                    PRIMARY KEY(""id"" AUTOINCREMENT),
-	                    UNIQUE(""name""),
-                        FOREIGN KEY(""owner"") REFERENCES ""accounts""(""id"") ON UPDATE CASCADE ON DELETE SET NULL,
-                        FOREIGN KEY(""guild"") REFERENCES ""guilds""(""id"") ON UPDATE CASCADE ON DELETE SET NULL
+                    CREATE UNIQUE INDEX guildname ON guilds(name);
+                    
+                    CREATE TABLE characters (
+                        id INTEGER NOT NULL UNIQUE,
+                        name TEXT UNIQUE,
+                        owner INTEGER,
+                        guild INTEGER,
+                        guildrank INTEGER,
+                        permissions INTEGER NOT NULL DEFAULT 0,
+                        prefix TEXT,
+                        level INTEGER NOT NULL DEFAULT 1,
+                        experience INTEGER NOT NULL DEFAULT 0,
+                        experience_to_next_level INTEGER NOT NULL DEFAULT 100,
+                        class TEXT DEFAULT '',
+                        species TEXT DEFAULT '',
+                        gender TEXT DEFAULT '',
+                        appearance TEXT DEFAULT '{}',
+                        stats TEXT DEFAULT '{}',
+                        inventory TEXT DEFAULT '{}',
+                        equipment TEXT DEFAULT '{}',
+                        abilities TEXT DEFAULT '{}',
+                        quests TEXT DEFAULT '{}',
+                        zone TEXT DEFAULT '',
+                        position_x REAL DEFAULT 0,
+                        position_y REAL DEFAULT 0,
+                        position_z REAL DEFAULT 0,
+                        rotation_yaw REAL DEFAULT 0,
+                        is_new_character INTEGER DEFAULT 0,
+                        PRIMARY KEY(id AUTOINCREMENT),
+                        UNIQUE(name),
+                        FOREIGN KEY(owner) REFERENCES accounts(id) ON UPDATE CASCADE ON DELETE SET NULL,
+                        FOREIGN KEY(guild) REFERENCES guilds(id) ON UPDATE CASCADE ON DELETE SET NULL
                     );
-                    CREATE UNIQUE INDEX charname
-                    ON characters(name);
-                    CREATE INDEX charowner
-                    ON characters(owner);
-                    CREATE INDEX charguild
-                    ON characters(guild);
-                    CREATE TABLE ""servers"" (
-                        ""id""  INTEGER NOT NULL UNIQUE,
-                        ""port""    INTEGER NOT NULL,
-                        ""level""   TEXT NOT NULL,
-                        ""serialized""  TEXT,
-                        PRIMARY KEY(""id"" AUTOINCREMENT)
+                    CREATE UNIQUE INDEX charname ON characters(name);
+                    CREATE INDEX charowner ON characters(owner);
+                    CREATE INDEX charguild ON characters(guild);
+                    
+                    CREATE TABLE servers (
+                        id INTEGER NOT NULL UNIQUE,
+                        port INTEGER NOT NULL,
+                        level TEXT NOT NULL,
+                        serialized TEXT,
+                        PRIMARY KEY(id AUTOINCREMENT)
                     );
                     CREATE UNIQUE INDEX ServerPortLevel ON servers (port, level);
-                    CREATE TABLE ""persistentobjs"" (
-                        ""id""  INTEGER NOT NULL UNIQUE,
-                        ""level""   TEXT NOT NULL,
-                        ""port""    INTEGER NOT NULL,
-                        ""objectId""    INTEGER NOT NULL,
-                        ""serialized""  TEXT NOT NULL,
-                        PRIMARY KEY(""id"" AUTOINCREMENT)
+                    
+                    CREATE TABLE persistentobjs (
+                        id INTEGER NOT NULL UNIQUE,
+                        level TEXT NOT NULL,
+                        port INTEGER NOT NULL,
+                        objectId INTEGER NOT NULL,
+                        serialized TEXT NOT NULL,
+                        PRIMARY KEY(id AUTOINCREMENT)
                     );
                     CREATE UNIQUE INDEX PersistentObjIndex ON persistentobjs (objectId, port, level);
-                    ");
-                // ~créer les tables
+                    
+                    CREATE TABLE level_config (
+                        level INTEGER NOT NULL,
+                        experience_required INTEGER NOT NULL,
+                        PRIMARY KEY(level)
+                    );
+                ");
 
                 Console.WriteLine("Fait.");
             }
@@ -104,22 +122,54 @@ namespace PersistenceServer
             {
                 Console.WriteLine($"Base de données trouvée: {settings.SqliteFilename}");
                 
-                // Vérifier si la colonne prefix existe et l'ajouter si nécessaire
+                // Vérifier et ajouter les colonnes manquantes si nécessaire
                 var checkColumnQuery = await RunQuery("PRAGMA table_info(characters);");
                 bool hasPrefix = false;
+                bool hasLevel = false;
+                bool hasClass = false;
+                
                 foreach (DataRow row in checkColumnQuery.Rows)
                 {
-                    if (row["name"].ToString() == "prefix")
-                    {
-                        hasPrefix = true;
-                        break;
-                    }
+                    string colName = row["name"].ToString() ?? "";
+                    if (colName == "prefix") hasPrefix = true;
+                    if (colName == "level") hasLevel = true;
+                    if (colName == "class") hasClass = true;
                 }
                 
                 if (!hasPrefix)
                 {
-                    Console.Write("Ajout de la colonne 'prefix' à la table characters...");
+                    Console.Write("Ajout de la colonne 'prefix'...");
                     await RunNonQuery("ALTER TABLE characters ADD COLUMN prefix TEXT;");
+                    Console.WriteLine("Fait.");
+                }
+
+                if (!hasLevel)
+                {
+                    Console.Write("Ajout des colonnes du système de niveaux...");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN level INTEGER NOT NULL DEFAULT 1;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN experience INTEGER NOT NULL DEFAULT 0;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN experience_to_next_level INTEGER NOT NULL DEFAULT 100;");
+                    Console.WriteLine("Fait.");
+                }
+
+                if (!hasClass)
+                {
+                    Console.Write("Ajout des nouvelles colonnes de personnage...");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN class TEXT DEFAULT '';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN species TEXT DEFAULT '';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN gender TEXT DEFAULT '';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN appearance TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN stats TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN inventory TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN equipment TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN abilities TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN quests TEXT DEFAULT '{}';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN zone TEXT DEFAULT '';");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN position_x REAL DEFAULT 0;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN position_y REAL DEFAULT 0;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN position_z REAL DEFAULT 0;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN rotation_yaw REAL DEFAULT 0;");
+                    await RunNonQuery("ALTER TABLE characters ADD COLUMN is_new_character INTEGER DEFAULT 0;");
                     Console.WriteLine("Fait.");
                 }
             }
@@ -131,7 +181,6 @@ namespace PersistenceServer
             cmd.AddParam("@accountName", accountName);
             var dt = await RunQuery(cmd);
 
-            // si aucun compte avec ce nom n'est trouvé
             if (!dt.HasRows())
             {
                 return -1;
@@ -142,25 +191,22 @@ namespace PersistenceServer
             var passwordInDb = dt.GetString(0, "password");
             var salt = dt.GetString(0, "salt");
 
-            // si le statut est banni
             if (status == -1)
             {
                 return -1;
             }
 
-            // si mauvais mot de passe
             if (passwordInDb != BCrypt.Net.BCrypt.HashPassword(password, salt + Pepper))
             {
                 return -1;
             }
 
-            // si tout est en ordre, autoriser la connexion en retournant l'id de l'utilisateur
             return id;
         }
 
         public override async Task<Guild?> CreateGuild(string guildName, int charId)
         {
-            // vérifier si une guilde avec ce nom existe
+            // Vérifier si une guilde avec ce nom existe
             var checkCmd = GetCommand("SELECT * FROM guilds WHERE name = @guildName");
             checkCmd.AddParam("@guildName", guildName);
             var dt = await RunQuery(checkCmd);
@@ -179,27 +225,10 @@ namespace PersistenceServer
             return new Guild(lastInsertedId, guildName);
         }
 
-        /*
-        * En raison d'un bug dans Microsoft.Data.Sqlite, DataTable.Load préserve les contraintes UNIQUE des requêtes JOIN
-        * Cela rend impossible d'avoir deux lignes avec le même nom de guilde et ça lance une erreur
-        * J'ai soumis un rapport de bug https://github.com/dotnet/efcore/issues/30765
-        * En attendant, on crée manuellement les colonnes DataTable pour cette requête spécifiquement, ce qui nous permet de contourner le bug
-        */
         public async override Task<Dictionary<int, Guild>> GetGuilds()
         {
             var result = new Dictionary<int, Guild>();
 
-            /*
-             * Un exemple de ce qu'on peut s'attendre à recevoir en retour :
-             * 
-             * guildId	    guildName			charId		charName 	
-             *    1 		Diamond Dogs 		1 			Arthur Pendragon
-             *    1         Diamond Dogs        2           Raven
-             *    2 		No Dogs 			NULL 		NULL 
-             * 
-             * Dans cet exemple "Diamond Dogs" a deux membres : Arthur Pendragon et Raven
-             * La guilde "No Dogs" est sans membres. Ça ne devrait pas arriver, mais si c'est le cas, on affichera un avertissement.
-             */
             await using var conn = await GetConnection(ConnectionParams);
 
             var cmd = GetCommand(@"
@@ -220,7 +249,6 @@ namespace PersistenceServer
 
             if (!dt.HasRows()) return result;
 
-            //Console.WriteLine("GuildId, GuildName, CharId, CharName, GuildRank");
             foreach (var row in dt.Rows.OfType<DataRow>())
             {
                 var guildId = (int)row.GetInt("guildId")!;
@@ -228,8 +256,7 @@ namespace PersistenceServer
                 var charId = row.GetInt("charId");
                 var charName = row.GetString("charName");
                 var guildRank = row.GetInt("guildRank");
-                //Console.WriteLine($"{guildId}, {guildName}, {charId}, {charName}, {guildRank}");
-                // si la guilde n'a pas encore été initialisée, le faire maintenant
+                
                 if (!result.ContainsKey(guildId))
                 {
                     result.Add(guildId, new Guild(guildId, guildName));
@@ -245,8 +272,6 @@ namespace PersistenceServer
             return result;
         }
 
-        // Parce que sqlite et mysql divergent lors de la gestion des opérations upsert (insert ou update), on a deux fonctions différentes
-        // L'identifiant ici est level+port
         public override async Task SaveServerInfo(string serializedServerInfo, int port, string level)
         {
             var cmd = GetCommand("INSERT OR REPLACE INTO `servers` (`id`, `port`, `level`, `serialized`) VALUES (NULL, @port, @level, @serialized)");
@@ -257,8 +282,6 @@ namespace PersistenceServer
             Console.WriteLine($"{DateTime.Now:HH:mm} Serveur Info ({port}-{level}) a été enregistré dans la base de données.");
         }
 
-        // Parce que sqlite et mysql divergent lors de la gestion des opérations upsert (insert ou update), on a deux fonctions différentes
-        // L'identifiant dans la BDD est une combinaison de level+port+objectId
         public override async Task SavePersistentObject(string level, int port, int objectId, string jsonString)
         {
             var cmd = GetCommand("INSERT OR REPLACE INTO `persistentobjs` (`id`, `level`, `port`, `objectId`, `serialized`) VALUES (NULL, @level, @port, @objectId, @serialized)");
